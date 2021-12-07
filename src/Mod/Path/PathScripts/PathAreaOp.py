@@ -26,6 +26,7 @@ import PathScripts.PathLog as PathLog
 import PathScripts.PathOp as PathOp
 import PathScripts.PathUtils as PathUtils
 import PathScripts.PathGeom as PathGeom
+import DraftGeomUtils
 import math
 from PySide import QtCore
 
