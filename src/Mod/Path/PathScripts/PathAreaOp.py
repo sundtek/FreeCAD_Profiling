@@ -186,6 +186,149 @@ class ObjectOp(PathOp.ObjectOp):
         Can safely be overwritten by subclasses.'''
         pass # pylint: disable=unnecessary-pass
 
+    def createLeadIn(self, win, vtouch, radius, degree):
+        f=Part.Face(win)
+        z=f.BoundBox.ZMax
+        z=0
+        v1=FreeCAD.Vector(-radius, -radius, z)
+        midpoint1=radius*math.cos(45*math.pi/180)
+        midpoint2=-radius+midpoint1
+        v2=FreeCAD.Vector(-radius, -radius, z)
+        A1 = Part.LineSegment(FreeCAD.Vector(-radius, -radius, z), FreeCAD.Vector(-radius*2, -radius,z))
+        A2 = Part.Arc(v1, FreeCAD.Vector(midpoint2, -midpoint1, z), FreeCAD.Vector(0,0,z))
+        B1 = Part.Arc(FreeCAD.Vector(0,0,z), FreeCAD.Vector(midpoint2, midpoint1, z), FreeCAD.Vector(-radius, radius, z))
+        B2 = Part.LineSegment(FreeCAD.Vector(-radius, radius, z), FreeCAD.Vector(-radius*2, radius, z))
+        B3 = Part.LineSegment(FreeCAD.Vector(-radius*2, radius, z), FreeCAD.Vector(-radius*2, -radius, z))
+        w1=Part.Wire([Part.Edge(B1), Part.Edge(B2), Part.Edge(B3)])
+        w2=Part.Wire([Part.Edge(A1), Part.Edge(A2)])
+        c1=w1.copy()
+        c2=w2.copy()
+        mat=FreeCAD.Matrix()
+        mat.rotateZ(degree/180*math.pi)
+        w1.transformShape(mat)
+        w2.transformShape(mat)
+        mat2=FreeCAD.Matrix()
+        mat2.move(vtouch)
+        w1.transformShape(mat2)
+        w2.transformShape(mat2)
+        insidecnt=0
+        for i in w1.Vertexes+w2.Vertexes:
+            if (f.isInside(FreeCAD.Vector(i.Point[0], i.Point[1], z), 0.05, True)):
+                insidecnt=insidecnt+1
+        if insidecnt>2:
+            mat=FreeCAD.Matrix()
+            mat.rotateZ((degree-180)/180*math.pi)
+            c1.transformShape(mat)
+            c2.transformShape(mat)
+            c1.transformShape(mat2)
+            c2.transformShape(mat2)
+            return [c1, c2]
+        return [w1, w2]
+        #set tabstop=4 set shiftwidth=4
+    def getAngle(self, v1, v2, mode):
+        try:
+            deltaX = v2.x - v1.x
+            deltaY = v2.y - v1.y
+            if mode ==1:
+                angle = math.atan2(float(deltaY),float(deltaX))*180/math.pi        # degrees
+            else:
+                angle = math.atan2(float(deltaY),float(deltaX))                  # radian
+            return angle
+        except Exception:
+            print("error...")
+            return 0
+
+
+    def insertLeadIn(self, wirein, ep):
+        c=wirein.Vertexes[0]
+        maxlen=0
+        mindist=None
+        maxWire=None
+        degree=45
+        halfpos=Part.Vertex()
+        newEdges=[]
+        inEdges=Part.__sortEdges__(wirein.Edges)
+        for i in inEdges:
+            # todo curve/circle/arc integration for now I only took care about the GeomLine
+            if hasattr(i, 'Curve') and i.Curve.TypeId == 'Part::GeomLine':
+                dist = ep.distanceToLine(i.Curve.Location, i.Curve.Direction)
+                line = None
+                intersect = []
+                if (len(self.halfposlist)>2):
+                    e=self.halfposlist
+                    line=Part.LineSegment(e[0], e[0]+(e[1]-e[0])*(len(self.halfposlist)+5))
+                    intersect=DraftGeomUtils.findIntersection(i, Part.Edge(line))
+
+
+                if (len(intersect)>0 or (mindist==None or dist<mindist)):
+                    mindist=dist
+                    maxlen=i.Length
+                    half=[]
+                    if (len(intersect)>0):
+                        e1=Part.Edge(Part.LineSegment(i.Vertexes[0].Point, intersect[0]))
+                        e2=Part.Edge(Part.LineSegment(intersect[0], i.Vertexes[1].Point))
+                        if (e1.Orientation == 'Reversed'):
+                            e1.reverse()
+                        if (e2.Orientation == 'Reversed'):
+                            e2.reverse()
+                    else:
+                        e1=Part.Edge(Part.LineSegment(i.Vertexes[0].Point, (i.Vertexes[0].Point+i.Vertexes[1].Point)/2))
+                        e2=Part.Edge(Part.LineSegment((i.Vertexes[0].Point+i.Vertexes[1].Point)/2, i.Vertexes[1].Point))
+                    half=Part.Wire([e1,e2])
+                    halfpos=half.Vertexes[1].Point
+                    degree=self.getAngle(i.Vertexes[0].Point, i.Vertexes[1].Point,1)+90
+                    newEdges+=half.Edges
+                else:
+                    newEdges.append(i)
+            else:
+                newEdges.append(i)
+        self.halfposlist.append(halfpos)
+        leadIn=self.createLeadIn(wirein, halfpos, 4, degree+180)
+        return self.getPath(leadIn[1].Edges, newEdges, leadIn[0].Edges)
+
+    def getLength(self, v1, v2):
+        p2=v2.Vertexes[0]
+        p3=v2.Vertexes[1]
+        if(v1.Vertexes[0].Point.isEqual(v2.Vertexes[0].Point, 0.001) or v1.Vertexes[0].Point.isEqual(v2.Vertexes[1].Point, 0.001)):
+            p1=v1.Vertexes[1]
+        else:
+            p1=v1.Vertexes[0]
+        a=Part.Edge(Part.LineSegment(p1.Point,  p2.Point))
+        b=Part.Edge(Part.LineSegment(p2.Point, p3.Point))
+        c=Part.Edge(Part.LineSegment(p3.Point, p1.Point))
+        w=Part.Wire([a,b,c])
+        return Part.Face(w).Length
+
+    def getPath(self, entry, edges, exit):
+         mainList=[]
+         mainList.append(entry[0])
+         mainList.append(entry[1])
+         c1=None
+         c2=None
+         for b in edges:
+             if self.isConnected(entry[1], b):
+                 if c1 == None:
+                     c1=b
+                 elif c2 == None:
+                     c2=b
+                     break
+         cseg=None
+         if (self.getLength(c1, entry[1])>self.getLength(c2, entry[1])):
+             mainList.append(c1)
+             edges.remove(c1)
+             cseg=c1
+         else:
+             mainList.append(c2)
+             edges.remove(c2)
+             cseg=c2
+         slist=Part.__sortEdges__(edges)
+
+         if (self.isConnected(entry[1], slist[0])):
+             slist.reverse()
+         mainList+=slist
+         mainList+=exit
+         return mainList
+
     def _buildPathArea(self, obj, baseobject, isHole, start, getsim):
         '''_buildPathArea(obj, baseobject, isHole, start, getsim) ... internal function.'''
         # pylint: disable=unused-argument
