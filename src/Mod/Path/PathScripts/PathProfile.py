@@ -185,6 +185,43 @@ class ObjectProfile(PathAreaOp.ObjectOp):
                     "App::Property", "Make True, if using Cutter Radius Compensation"
                 ),
             ),
+            (
+                "App::PropertyFloat", 
+                "stepOverPercent", 
+                "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Horizontal step over in percent")
+            ),
+            (
+                "App::PropertyFloat",
+                "clippingOffset",
+                "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Clipping offset")
+            ),
+            (
+                "App::PropertyBool",
+                "hLeadIn",
+                "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Use horizontal lead in, instead of plunging")
+            ),
+            (
+                "App::PropertyInteger",
+                "passes",
+                "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Passes")
+            ),
+            (
+                "App::PropertyBool",
+                "multiPassClipping",
+                "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Clip Multiple passes on stock outline")
+            ),
+            (
+                "App::PropertyVector",
+                "entryPoint",
+                "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Coordinate where the endmill should enter milling")
+            )
+       
         ]
 
     def areaOpPropertyEnumerations(self):
@@ -214,6 +251,10 @@ class ObjectProfile(PathAreaOp.ObjectOp):
             "JoinType": "Round",
             "MiterLimit": 0.1,
             "OffsetExtra": 0.0,
+            "clippingOffset": 0.0,
+            "entryPoint": FreeCAD.Vector(),
+            "stepOverPercent": 15,
+            "passes": 1,
             "Side": "Outside",
             "UseComp": True,
             "processCircles": False,
@@ -301,7 +342,20 @@ class ObjectProfile(PathAreaOp.ObjectOp):
             offset = 0 - offset
         if isHole:
             offset = 0 - offset
+        params["radius"] = self.radius
+        params["stepOverPercent"] = obj.stepOverPercent
+        params["entryPoint"] = obj.entryPoint
+        params["passes"] = obj.passes
         params["Offset"] = offset
+
+        if obj.multiPassClipping:
+            bb = self.JOB.Stock.Shape.BoundBox
+            e=[]
+            e.append(Part.Edge(Part.LineSegment(FreeCAD.Vector(bb.XMin, bb.YMin, 0), FreeCAD.Vector(bb.XMax, bb.YMin, 0))))
+            e.append(Part.Edge(Part.LineSegment(FreeCAD.Vector(bb.XMax, bb.YMin, 0), FreeCAD.Vector(bb.XMax, bb.YMax, 0))))
+            e.append(Part.Edge(Part.LineSegment(FreeCAD.Vector(bb.XMax, bb.YMax, 0), FreeCAD.Vector(bb.XMin, bb.YMax, 0))))
+            e.append(Part.Edge(Part.LineSegment(FreeCAD.Vector(bb.XMin, bb.YMax, 0), FreeCAD.Vector(bb.XMin, bb.YMin, 0))))
+            params['mpClippingArea'] = Part.Wire(Part.__sortEdges__(e)).makeOffset2D(self.radius)
 
         jointype = ["Round", "Square", "Miter"]
         params["JoinType"] = jointype.index(obj.JoinType)
