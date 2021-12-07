@@ -189,6 +189,7 @@ class ObjectOp(PathOp.ObjectOp):
     def _buildPathArea(self, obj, baseobject, isHole, start, getsim):
         '''_buildPathArea(obj, baseobject, isHole, start, getsim) ... internal function.'''
         # pylint: disable=unused-argument
+        startVector = None
         PathLog.track()
         area = Path.Area()
         area.setPlane(PathUtils.makeWorkplane(baseobject))
@@ -196,14 +197,86 @@ class ObjectOp(PathOp.ObjectOp):
 
         areaParams = self.areaOpAreaParams(obj, isHole) # pylint: disable=assignment-from-no-return
 
+        entryPoint=None
+        if 'entryPoint' in areaParams:
+            entryPoint = AreaParams['entryPoint']
+            areaParams.pop('entryPoint', None)
+
+        passes = 1
+        if 'passes' in areaParams:
+            passes = areaParams['passes']
+            areaParams.pop('passes', None)
+
+        stepOverPercent = 0
+        if 'stepOverPercent' in areaParams:
+            stepOverPercent = areaParams['stepOverPercent']
+            areaParams.pop('stepOverPercent', None)
+
+        mpClippingArea = None
+        mpClippingOffset = None
+        if 'mpClippingArea' in areaParams:
+            mpClippingArea = areaParams['mpClippingArea']
+            mpClippingOffset = areaParams['mpClippingOffset']
+            areaParams.pop('mpClippingOffset', None)
+            areaParams.pop('mpClippingArea', None)
+
+        radius = 0
+        if 'radius' in areaParams:
+            radius = areaParams['radius']
+            areaParams.pop('radius', None)
+
         heights = [i for i in self.depthparams]
         PathLog.debug('depths: {}'.format(heights))
-        area.setParams(**areaParams)
-        obj.AreaParams = str(area.getParams())
 
         PathLog.debug("Area with params: {}".format(area.getParams()))
 
-        sections = area.makeSections(mode=0, project=self.areaOpUseProjection(obj), heights=heights)
+        sections = []
+        for i in range(passes):
+            if Offset in areaParams:
+                areaParams['Offset'] = areaParams['Offset'] + (radius*2)*stepOverPercent/100.0
+            area.setParams(**areaParams)
+            obj.AreaParams = str(area.getParams())
+            sections += area.makeSections(mode=0, project=self.areaOpUseProjection(obj), heights=heights)
+
+
+        if mpClippingArea is not None:
+            shapelist=[]
+            grouplist=[]
+            self.halfposlist=[]
+            sl={}
+            for sec in sections:
+                zPos=sec.getShape().BoundBox.ZMax
+                mpClippingArea.translate(FreeCAD.Vector(0,0,sec.getShape().BoundBox.ZMax-mpClippingArea.BoundBox.ZMax))
+                f=Path.Area().add([mpClippingArea, sec.getShape().Wires[0]], op=2).getShape()
+                if len(f.Wires) == 0:
+                    continue 
+                leadin=self.insertLeadIn(f.Wires[0], FreeCAD.Vector(entryPoint[0], entryPoint[1], sec.getShape().BoundBox.ZMax))
+                # not sure if needed
+                if (leadin[0].Orientation == 'Reversed'):
+                    leadin[0].reverse()
+                if (leadin[1].Orientation == 'Reversed'):
+                    leadin[1].reverse()
+                intro=Part.Wire([leadin[1], leadin[0]])
+                edges=Part.Wire(leadin[2:len(leadin)-4])
+                outro=Part.Wire(leadin[len(leadin)-4:])
+                if zPos not in sl:
+                    sl[zPos]=[]
+                sl[zPos].append([intro, edges, outro])
+                #fixme
+                if (leadin[0].Vertexes[0].Point.isEqual(leadin[1].Vertexes[0].Point, 0.001) or leadin[0].Vertexes[0].Point.isEqual(leadin[1].Vertexes[1].Point, 0.001)):
+                    startVector=leadin[0].Vertexes[1].Point
+                else:
+                    startVector=leadin[0].Vertexes[0].Point
+            k=sorted(sl.keys())
+            k.reverse()
+            for i in k:
+                sl[i].reverse()
+                for b in sl[i]:
+                    shapelist+=b
+        else:
+            shapelist = [sec.getShape() for sec in sections]
+
+  
         PathLog.debug("sections = %s" % sections)
         shapelist = [sec.getShape() for sec in sections]
         PathLog.debug("shapelist = %s" % shapelist)
@@ -213,6 +286,8 @@ class ObjectOp(PathOp.ObjectOp):
         pathParams['feedrate'] = self.horizFeed
         pathParams['feedrate_v'] = self.vertFeed
         pathParams['verbose'] = True
+        if passes > 1:
+            pathParams['sort_mode'] = 0
         pathParams['resume_height'] = obj.SafeHeight.Value
         pathParams['retraction'] = obj.ClearanceHeight.Value
         pathParams['return_end'] = True

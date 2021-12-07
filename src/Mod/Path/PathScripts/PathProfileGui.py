@@ -52,6 +52,7 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
 
     def initPage(self, obj):
         self.setTitle("Profile - " + obj.Label)
+	self.form.selStartPointPB.clicked.connect(self.buttonClick)
         self.updateVisibility()
 
     def profileFeatures(self):
@@ -67,6 +68,20 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         form = FreeCADGui.PySideUic.loadUi(":/panels/PageOpProfileFullEdit.ui")
         return form
 
+    def buttonClick(self):
+        self.view = FreeCADGui.ActiveDocument.ActiveView
+        self.callback = self.view.addEventCallbackPivy(coin.SoMouseButtonEvent.getClassTypeId(), self.getMouseClick) 
+
+    def getMouseClick(self, event_cb):
+        event = event_cb.getEvent()
+        pos = event.getPosition().getValue()
+        v=FreeCADGui.activeDocument().activeView()
+        info = v.getObjectInfo((pos[0],pos[1]))
+        if info is not None: 
+            self.obj.entryPoint=FreeCAD.Vector(info['x'], info['y'], info['z'])
+        if event.getState() == coin.SoMouseButtonEvent.DOWN:
+            self.view.removeEventCallbackPivy(coin.SoMouseButtonEvent.getClassTypeId(), self.callback)
+
     def getFields(self, obj):
         '''getFields(obj) ... transfers values from UI to obj's proprties'''
         self.updateToolController(obj, self.form.toolController)
@@ -77,6 +92,13 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         if obj.Direction != str(self.form.direction.currentText()):
             obj.Direction = str(self.form.direction.currentText())
         PathGui.updateInputField(obj, 'OffsetExtra', self.form.extraOffset)
+
+        obj.stepOverPercent=self.form.stepOverSpinBox.value()
+        obj.clippingOffset=self.form.clippingOffsetSpinBox.value()
+        obj.passes=self.form.passesSpinBox.value()
+
+        obj.multiPassClipping=self.form.multiPassClipping.isChecked()
+        obj.hLeadIn=self.form.hLeadIn.isChecked()
 
         if obj.UseComp != self.form.useCompensation.isChecked():
             obj.UseComp = self.form.useCompensation.isChecked()
@@ -98,6 +120,12 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         self.selectInComboBox(obj.Side, self.form.cutSide)
         self.selectInComboBox(obj.Direction, self.form.direction)
         self.form.extraOffset.setText(FreeCAD.Units.Quantity(obj.OffsetExtra.Value, FreeCAD.Units.Length).UserString)
+
+        self.form.stepOverSpinBox.setValue(obj.stepOverPercent)
+        self.form.passesSpinBox.setValue(obj.passes)
+        self.form.hLeadIn.setChecked(obj.hLeadIn)
+        self.form.clippingOffsetSpinBox.setValue(obj.clippingOffset)
+        self.form.multiPassClipping.setChecked(obj.multiPassClipping)
 
         self.form.useCompensation.setChecked(obj.UseComp)
         self.form.useStartPoint.setChecked(obj.UseStartPoint)
