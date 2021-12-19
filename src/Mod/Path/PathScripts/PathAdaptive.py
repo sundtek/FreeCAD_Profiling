@@ -30,9 +30,11 @@ import Path
 import FreeCAD
 import time
 import json
+import Units
 import math
 import area
 
+from FreeCAD import Units
 from PySide import QtCore
 
 # lazily loaded modules
